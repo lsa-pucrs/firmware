@@ -8,6 +8,13 @@ namespace platypus
 {
   const int DEFAULT_BUFFER_SIZE = 128;
   
+  class Dynamite : public Motor 
+  {
+  public:
+    Dynamite(int channel) : Motor(channel) {}
+    void arm();
+  };
+  
   class VaporPro : public Motor 
   {
   public:

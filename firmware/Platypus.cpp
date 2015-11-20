@@ -170,6 +170,9 @@ void Motor::velocity(float velocity)
   if (velocity < -1.0) {
     velocity = -1.0;
   }
+  // Scale down power to prevent power reset 
+  //  (value determined by trial by error with Dynamite ESCs)
+  velocity = 0.6 * velocity;
   velocity_ = velocity;
 
   float command = (velocity * 600) + 1500;

@@ -11,6 +11,16 @@ using namespace platypus;
 #define Kd 0x00004000
 #define Qpps 44000
 
+void Dynamite::arm()
+{
+    disable();
+    delay(500);
+
+    velocity(0.0);
+    enable();
+    delay(5000);
+}
+
 void VaporPro::arm()
 {
   disable();
