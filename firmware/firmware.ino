@@ -26,9 +26,10 @@ USBHost Usb;
 ADK adk(&Usb, companyName, applicationName, accessoryName, versionNumber, url, serialNumber);
 
 // Android send/receive buffers
-const size_t INPUT_BUFFER_SIZE = 512;
-char input_buffer[INPUT_BUFFER_SIZE+1];
-char debug_buffer[INPUT_BUFFER_SIZE+1];
+constexpr size_t INPUT_BUFFER_SIZE = 512;
+char serial_buffer[INPUT_BUFFER_SIZE+1];
+
+unsigned long last_command_time = 0;
 
 const size_t OUTPUT_BUFFER_SIZE = 576;
 char output_buffer[OUTPUT_BUFFER_SIZE+3];
@@ -36,22 +37,16 @@ char output_buffer[OUTPUT_BUFFER_SIZE+3];
 // System state enumeration
 enum SystemState
 {
-  /** There is no ADK USB device currently plugged in. */
+  /** There is no server currently communicating with the system. */
   DISCONNECTED,
-  /** There is an ADK USB device detected, but it is unresponsive. */
+  /** There is a server transmitting valid commands to the system. */
   CONNECTED,
-  /** There is a Platypus Server currently communicating. */
-  RUNNING  
 };
 SystemState system_state = DISCONNECTED;
 
 // Time betweeen commands before we consider the Android
 // server to be unresponsive.
-const size_t RESPONSE_TIMEOUT_MS = 500;
-
-// Time to wait before dropping into DISCONNECTED state when USB cable is disconnected
-// Deals with dodgy USB connections and improves USB C support for all cables
-const size_t CONNECTION_TIMEOUT_MS = 500;
+const size_t COMMAND_TIMEOUT_MS = 1000;
 
 // Define the systems on this board
 // TODO: move this board.h?
@@ -62,7 +57,7 @@ platypus::Led rgb_led;
  * Requires a null-terminated char* pointer.
  */
 void send(char *str) 
-{ 
+{
   // Add newline termination
   // TODO: Make sure we don't buffer overflow
   size_t len = strlen(str);
@@ -113,6 +108,9 @@ void handleCommand(char *buffer)
     reportError("Failed to parse JSON command.", buffer);
     return;
   }
+
+  // If we have received a valid command, update system state.
+  last_command_time = millis();
 
   for (JsonObject::iterator it=command.begin(); it!=command.end(); ++it)
   {
@@ -207,8 +205,7 @@ void setup()
   platypus::motors[1]->enablePower(true);
 
   // Make the ADK buffers into null terminated string.
-  debug_buffer[INPUT_BUFFER_SIZE] = '\0';
-  input_buffer[INPUT_BUFFER_SIZE] = '\0';
+  serial_buffer[INPUT_BUFFER_SIZE] = '\0';
   output_buffer[OUTPUT_BUFFER_SIZE] = '\0';
 
   // Set ADC Precision:
@@ -216,7 +213,8 @@ void setup()
   
   // Create secondary tasks for system.
   Scheduler.startLoop(motorUpdateLoop);
-  Scheduler.startLoop(serialConsoleLoop);
+  Scheduler.startLoop(serialCommandLoop);
+  Scheduler.startLoop(usbCommandLoop);
   Scheduler.startLoop(batteryUpdateLoop);
 
   // Initialize Platypus library.
@@ -236,96 +234,74 @@ void setup()
   delay(1000);
 }
 
+/**
+ * The main loop is _only_ used to clearly update the system state.
+ */
 void loop() 
 {
-  // Keep track of how many reads we haven't made so far.
-  static unsigned long last_command_time = 0;
+  // Based on the command history, change the state of the system.
+  if (millis() - last_command_time >= COMMAND_TIMEOUT_MS)
+    system_state = DISCONNECTED;
+  else
+    system_state = CONNECTED;
 
-  // Keep track of last time USB connection was detected
-  static unsigned long last_usb_connection_time = 0;
-  
-  // Number of bytes received from USB.
-  uint32_t bytes_read = 0;
-  
+  // Update the LEDs to match the system state.
+  switch (system_state)
+  {
+  case DISCONNECTED:
+    // Red blink
+    rgb_led.set((millis() >> 8) & 1, 0, 0);
+    break;
+  case CONNECTED:
+    // Green blink
+    rgb_led.set(0, (millis() >> 8) & 1, 0);
+    break;
+  }
+}
+
+void usbCommandLoop()
+{
   // Do USB bookkeeping.
   Usb.Task();
   
-  // Report system as shutdown if not connected to USB.
+  // Wait for USB connection if we do not have it.
   if (!adk.isReady())
-  {
-    unsigned long current_time = millis();
-    // If not connected to USB, we are 'DISCONNECTED'.
-    if (system_state != DISCONNECTED)
-    {
-      Serial.println("WARNING: USB connection state fault");
-      if (current_time - last_usb_connection_time >= CONNECTION_TIMEOUT_MS){
-        Serial.println("STATE: DISCONNECTED");
-        system_state = DISCONNECTED;
-      }
-    }
-    
-    // Wait for USB connection again.
-    yield();
     return;
-  } 
-  else 
-  {  
-    // If connected to USB, we are now 'CONNECTED'!
-    if (system_state == DISCONNECTED)
-    {
-      Serial.println("STATE: CONNECTED");
-      system_state = CONNECTED;
-      last_usb_connection_time = millis();
-    }
-  }
         
-  // Attempt to read command from USB.
-  adk.read(&bytes_read, INPUT_BUFFER_SIZE, (uint8_t*)input_buffer);
-  unsigned long current_command_time = millis();
-  if (bytes_read <= 0) 
+  // Allocate useful buffer variables.
+  char usb_buffer[INPUT_BUFFER_SIZE+1];
+  char * const buffer_start = usb_buffer;
+  char * const buffer_end = usb_buffer + INPUT_BUFFER_SIZE;
+  char *buffer_ptr = usb_buffer;
+  uint32_t bytes_read = 0;
+
+  // Loop forever while the connection is valid, reading in new characters.
+  while (!adk.read(&bytes_read, buffer_end - buffer_ptr, (uint8_t *)buffer_ptr))
   {
-    // If we haven't received a response in a long time, maybe 
-    // we are 'CONNECTED' but the server is not running.
-    if (current_command_time - last_command_time >= RESPONSE_TIMEOUT_MS)
+    // Iterate through the new characters received, looking for the end of a message.
+    for (uint32_t idx; idx < bytes_read; ++idx, ++buffer_ptr)
     {
-      if (system_state == RUNNING)
+      // If the buffer terminated, take everything up to this point and parse it.
+      if (*buffer_ptr == '\n')
       {
-        Serial.println("STATE: CONNECTED");
-        system_state = CONNECTED; 
+        *buffer_ptr = '\0';
+        handleCommand(usb_buffer);
+        buffer_ptr = usb_buffer;
       }
     }
-    
-    // Wait for more USB data again.
+
+    // If the buffer was exhausted, clear the entire thing.
+    if (buffer_ptr == buffer_end)
+      buffer_ptr = usb_buffer;
+
+    // Defer to other threads while we wait for more input.
+    Usb.Task();
     yield();
-    return;
-  } 
-  else 
-  {
-    // If we received a command, the server must be 'RUNNING'.
-    if (system_state == CONNECTED) 
-    {
-      Serial.println("STATE: RUNNING");
-      system_state = RUNNING; 
-    }
-    
-    // Update the timestamp of last received command.
-    last_command_time = current_command_time;
-    last_usb_connection_time = current_command_time;
   }
-  
-  // Properly null-terminate the buffer.
-  input_buffer[bytes_read] = '\0';
-  
-  // Copy incoming message to debug console.
-  //Serial.print("<- ");
-  //Serial.println(input_buffer);
-  
-  // Attempt to parse command
-  handleCommand(input_buffer);
 }
 
 void batteryUpdateLoop()
-{  
+{
   int rawVoltage = analogRead(board::V_BATT);
   double voltageReading = 0.008879*rawVoltage + 0.09791;
 
@@ -354,23 +330,6 @@ void motorUpdateLoop()
   // Wait for a fixed time period.
   delay(100);
   
-  // Set the LED for current system state
-  switch (system_state)
-  {
-  case DISCONNECTED:
-    // Red blink
-    rgb_led.set((millis() >> 8) & 1, 0, 0);
-    break;
-  case CONNECTED:
-    // Green blink
-    rgb_led.set(0, (millis() >> 8) & 1, 0);
-    break;
-  case RUNNING:
-    // Solid green
-    rgb_led.set(0, 1, 0);
-    break;
-  }
-  
   // Handle the motors appropriately for each system state.
   switch (system_state)
   {
@@ -393,8 +352,7 @@ void motorUpdateLoop()
       platypus::Motor* motor = platypus::motors[motor_idx];
       motor->set("v", "0.0");
     }
-    // NOTE: WE DO NOT BREAK OUT OF THE SWITCH HERE!
-  case RUNNING:
+
     // Rearm motors if necessary.
     for (size_t motor_idx = 0; motor_idx < board::NUM_MOTORS; ++motor_idx) 
     {
@@ -410,7 +368,7 @@ void motorUpdateLoop()
   }
   
   // Send status updates while connected to server.
-  if (system_state == RUNNING)
+  if (system_state == CONNECTED)
   {
     // TODO: move this to another location (e.g. Motor)
     // Send motor status update over USB
@@ -433,76 +391,42 @@ void motorUpdateLoop()
 }
 
 /**
- * Periodically sends winch position updates.
- */
-void winchUpdateLoop()
-{
-  // Wait for a fixed time period.
-  delay(300);
-  
-  // Send status updates while connected to server.
-  if (system_state == RUNNING)
-  {  
-    // TODO: Remove this hack
-    // Send encoder status update over USB
-    bool valid = false;
-    long pos = ((platypus::Winch*)platypus::sensors[2])->encoder(&valid);
-    
-    if (valid)
-    {
-      snprintf(output_buffer, OUTPUT_BUFFER_SIZE,
-        "{"
-          "\"s2\":{"
-            "\"type\":\"winch\","
-            "\"depth\":%ld"
-          "}"
-        "}",
-        pos
-      );
-      send(output_buffer);
-    } 
-  }
-  yield();
-}
-
-/**
  * Reads from serial debugging console and attempts to execute commands.
  */
-void serialConsoleLoop()
+void serialCommandLoop()
 {
   // Index to last character in debug buffer.
-  static size_t debug_buffer_idx = 0;
+  static size_t serial_buffer_idx = 0;
   
   // Wait until characters are received.
   while (!Serial.available()) yield();
 
-  // Put the new character into the buffer, ignore \n and \r
+  // Put the new character into the buffer, ignore \n
   char c = Serial.read();
-  if (c != '\n' && c != '\r'){
-    debug_buffer[debug_buffer_idx++] = c;
-  }
+  if (c != '\n')
+    serial_buffer[serial_buffer_idx++] = c;
   
   // If it is the end of a line, or we are out of space, parse the buffer.
-  if (debug_buffer_idx >= INPUT_BUFFER_SIZE || c == '\n' || c == '\r') 
+  if (serial_buffer_idx >= INPUT_BUFFER_SIZE || c == '\n')
   {
     // Properly null-terminate the buffer.
-    debug_buffer[debug_buffer_idx] = '\0';
-    debug_buffer_idx = 0;
+    serial_buffer[serial_buffer_idx] = '\0';
+    serial_buffer_idx = 0;
 
     //Serial.println(debug_buffer);
-    if (strcmp(debug_buffer, "DOc") == 0){
+    if (strcmp(serial_buffer, "DOc") == 0){
       platypus::sensors[1]->calibrate(1);
-    } else if (strcmp(debug_buffer, "DOc0") == 0){
+    } else if (strcmp(serial_buffer, "DOc0") == 0){
       platypus::sensors[1]->calibrate(0);
-    } else if (strcmp(debug_buffer, "PHcm") == 0){
+    } else if (strcmp(serial_buffer, "PHcm") == 0){
       platypus::sensors[2]->calibrate(0.0);
-    } else if (strcmp(debug_buffer, "PHcl") == 0){
+    } else if (strcmp(serial_buffer, "PHcl") == 0){
       platypus::sensors[2]->calibrate(-1);
-    } else if (strcmp(debug_buffer, "PHch") == 0){
+    } else if (strcmp(serial_buffer, "PHch") == 0){
       platypus::sensors[2]->calibrate(1);
     }
     // Attempt to parse command.
-    handleCommand(debug_buffer); 
+    handleCommand(serial_buffer);
   }
 }
 
