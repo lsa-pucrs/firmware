@@ -186,7 +186,7 @@ bool ServoSensor::set(const char *param, const char *value)
   }
 }
 
-char* ServoSensor::name()
+const char* ServoSensor::name()
 {
   return "servo";
 }
@@ -303,7 +303,7 @@ ES2::ES2(int channel)
   state = OFF;
 }
 
-char* ES2::name()
+const char* ES2::name()
 {
   return "es2";
 }
@@ -345,7 +345,7 @@ AtlasPH::AtlasPH(int channel)
   state = INIT;
 }
 
-char * AtlasPH::name(){
+const char * AtlasPH::name(){
   return "atlas_ph";
 }
 
@@ -566,7 +566,7 @@ AtlasDO::AtlasDO(int channel)
 }
 
 
-char * AtlasDO::name(){
+const char *AtlasDO::name(){
   return "atlas_do";
 }
 
@@ -802,7 +802,7 @@ GY26Compass::GY26Compass(int channel) : Sensor(channel), SerialSensor(channel, 9
   declinationAngle = 93; 
 }
 
-char * GY26Compass::name(){
+const char *GY26Compass::name(){
   return "GY26Compass";
 }
 
@@ -821,7 +821,7 @@ HDS::HDS(int channel)
 
 }
 
-char* HDS::name()
+const char *HDS::name()
 {
   return "hds";
 }
@@ -845,7 +845,7 @@ Winch::Winch(int channel, uint8_t address)
   roboclaw_.begin(38400);
 }
 
-char* Winch::name()
+const char *Winch::name()
 {
   return "winch";
 }

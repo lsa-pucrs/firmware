@@ -76,7 +76,7 @@ namespace platypus
     AnalogSensor(int channel);
 
     bool set(const char* param, const char* value);
-    virtual char *name() = 0;
+    virtual const char *name() override = 0;
     
     void scale(float scale);
     float scale();
@@ -96,7 +96,7 @@ namespace platypus
     ~ServoSensor();
 
     bool set(const char* param, const char* value);
-    virtual char *name();
+    virtual const char *name() override;
     
     void position(float velocity);
     float position();
@@ -110,7 +110,7 @@ namespace platypus
   {
   public:
     PoweredSensor(int channel, bool poweredOn=true);
-    virtual char *name() = 0;
+    virtual const char *name() override = 0;
     bool powerOn();
     bool powerOff();
 
@@ -122,7 +122,7 @@ namespace platypus
   {
   public:
     SerialSensor(int channel, int baudRate, int serialType = RS232, int dataStringLength = 0);
-    virtual char * name() = 0;
+    virtual const char * name() override = 0;
     void onSerial();
 
     enum SERIAL_TYPE{
@@ -149,7 +149,7 @@ namespace platypus
     
   public:
     ES2(int channel);
-    virtual char *name();
+    virtual const char *name() override;
     void loop();
   };
   
@@ -169,7 +169,7 @@ namespace platypus
   public:
     AtlasPH(int channel);
     bool set(const char * param, const char * value);
-    virtual char * name();
+    virtual const char *name() override;
     void setTemp(double temp);
     void calibrate(int flag);
     void loop();
@@ -194,7 +194,7 @@ namespace platypus
   public:
     AtlasDO(int channel);
     bool set(const char * param, const char * value);
-    virtual char * name();
+    virtual const char *name() override;
     void setTemp(double temp);
     void setEC(double EC);
     void calibrate(int flag);
@@ -211,7 +211,7 @@ namespace platypus
     
   public:
     GY26Compass(int channel);
-    virtual char * name();  
+    virtual const char *name() override;
     void loop();
     //void onSerial();
   };
@@ -220,7 +220,7 @@ namespace platypus
   {
   public:
     HDS(int channel);
-    virtual char *name();
+    virtual const char *name() override;
     //void onSerial();
   };
   
@@ -228,7 +228,7 @@ namespace platypus
   {
   public:
     Winch(int channel, uint8_t address);
-    virtual char *name();
+    virtual const char *name() override;
     bool set(const char* param, const char* value);
     
     void reset();

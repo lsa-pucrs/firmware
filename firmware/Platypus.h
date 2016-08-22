@@ -89,7 +89,7 @@ namespace platypus
     virtual ~Sensor();
     
     virtual bool set(const char* param, const char* value);
-    virtual char *name() = 0;
+    virtual const char *name() = 0;
     virtual void onSerial();
     virtual void loop();
 
