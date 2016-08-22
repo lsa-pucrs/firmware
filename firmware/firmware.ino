@@ -66,7 +66,8 @@ void send(char *str)
   str[len] = '\0';
   
   // Write string to USB.
-  if (adk.isReady()) adk.write(len, (uint8_t*)str);
+  if (adk.isReady())
+    adk.write(len, (uint8_t*)str);
   
   // Copy string to debugging console.
   //Serial.print("-> ");
@@ -282,10 +283,12 @@ void usbCommandLoop()
     for (uint32_t idx; idx < bytes_read; ++idx, ++buffer_ptr)
     {
       // If the buffer terminated, take everything up to this point and parse it.
+      // Then, shift the remaining bytes to the beginning of the buffer and continue.
       if (*buffer_ptr == '\n')
       {
         *buffer_ptr = '\0';
         handleCommand(usb_buffer);
+        memmove(usb_buffer, buffer_ptr, bytes_read - idx);
         buffer_ptr = usb_buffer;
       }
     }
