@@ -1,0 +1,26 @@
+TO DO PUCRS
+
+Delete this file after these modification are done.
+
+
+1) Include the complete set of Atlas sensors in the boat
+https://www.atlas-scientific.com/product_pages/components/port_expander.html
+using the serial multiplexer in the kit
+https://www.atlas-scientific.com/product_pages/components/port_expander.html
+
+responsible: Roger
+
+Missing information: pcb schematics to hook up the serial multiplexer into the Arduino Due
+
+2) Include the ultrasonic sensors also via serial port
+
+responsible: Renan
+
+====
+Missin 
+
+====
+
+Code comparision between relevant branches
+https://github.com/platypusllc/firmware/commit/3dbecccc1135e9131c7fafe1b360adcc6fb70978
+
